@@ -1,8 +1,8 @@
-"""TypeSafe makes choices; an optional small OpenAI-compatible model writes field values.
+"""A decision engine makes choices; an optional small OpenAI-compatible model writes field values.
 
-Set JEV_DECISION=laya to route operation/target choices through the local Laya System 1
-engine (https://github.com/NandhaKishorM/laya) instead of the TypeSafe API. The text
-helper is unchanged either way.
+JEV_DECISION=laya (the default) routes operation/target choices through the local Laya System 1
+engine (https://github.com/NandhaKishorM/laya). Set JEV_DECISION=typesafe to use the TypeSafe API
+instead; that path needs TYPESAFE_API_KEY. The text helper is unchanged either way.
 """
 
 import json
@@ -152,15 +152,39 @@ def _decide(elements, targets, controls, operations, questions, body, result, st
     }
 
 
+# ponytail: deliberately duplicated in laya_ask.py. Importing it from here would execute this
+# package's __init__, pulling agent/browser/browser_harness into the decision-only CLIs.
+def vram_guard(min_free_mb=1500):
+    """Fail with an actionable error instead of a CUDA access violation when the GPU is full.
+
+    Loading the model into an exhausted device segfaults natively (0xC0000005), which looks
+    like a crash in this code. Checking first turns it into a message the caller can act on.
+    """
+    try:
+        import torch
+
+        if not torch.cuda.is_available():
+            return
+        free, _total = torch.cuda.mem_get_info()
+        if free < min_free_mb * 1024 * 1024:
+            raise RuntimeError(
+                f"only {free // (1024 * 1024)} MB of VRAM free, Laya needs about {min_free_mb} MB. "
+                "Close other GPU users (a stray voice listener or dashboard process is the usual cause) and retry."
+            )
+    except ImportError:
+        return
+
+
 def _laya_call(body):
     """One local Laya forward pass; lazy singleton so the torch import stays out of TypeSafe runs."""
     global _LAYA_AGENT
     if _LAYA_AGENT is None:
         with _LAYA_LOCK:
             if _LAYA_AGENT is None:
+                vram_guard()
                 from laya import Agent
 
-                default_path = str(Path(__file__).resolve().parent.parent / "models" / "laya")
+                default_path = str(Path(__file__).resolve().parent.parent / "models" / "laya-typed-decisions")
                 _LAYA_AGENT = Agent(
                     os.environ.get("JEV_LAYA_MODEL") or default_path,
                     device=os.environ.get("JEV_LAYA_DEVICE") or None,
@@ -226,8 +250,8 @@ def unload_laya():
 
 
 def choose(state, goal, history):
-    """Pick the next operation and target. JEV_DECISION=laya routes to the local Laya engine."""
-    if os.environ.get("JEV_DECISION", "typesafe").lower() == "laya":
+    """Pick the next operation and target. JEV_DECISION defaults to the local Laya engine."""
+    if os.environ.get("JEV_DECISION", "laya").lower() == "laya":
         return choose_laya(state, goal, history)
     return choose_typesafe(state, goal, history)
 

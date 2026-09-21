@@ -43,6 +43,7 @@ def _vram_guard(min_free_mb=1500):
 
     Loading the model into an exhausted device segfaults natively (0xC0000005), which looks
     like a crash in this code. Checking first turns it into a message the caller can act on.
+    Twin of jev_ultrafast.model.vram_guard; kept local so this module stays browser-free.
     """
     try:
         import torch

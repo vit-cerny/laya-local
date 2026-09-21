@@ -172,7 +172,7 @@ def main(argv):
     if MCPServer is None:
         print("mcp package missing; run: uv add mcp", file=sys.stderr)
         return 2
-    if os.environ.get("JEV_LAYA_PREWARM") == "1" and os.environ.get("JEV_DECISION", "typesafe") == "laya":
+    if os.environ.get("JEV_LAYA_PREWARM") == "1" and os.environ.get("JEV_DECISION", "laya") == "laya":
         print("prewarming local Laya model (~35s)...", file=sys.stderr, flush=True)
         from laya_ask import agent
 

@@ -34,7 +34,7 @@ def cmd_status():
 
     print(f"torch {torch.__version__} | cuda {torch.cuda.is_available()} | "
           f"{torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'cpu'}")
-    print(f"JEV_DECISION={os.environ.get('JEV_DECISION', 'typesafe')}  "
+    print(f"JEV_DECISION={os.environ.get('JEV_DECISION', 'laya')}  "
           f"JEV_LAYA_MODEL={os.environ.get('JEV_LAYA_MODEL', '(default)')}")
     print(f"target window: {_TARGET_WINDOW[0] or '(foreground)'}")
 

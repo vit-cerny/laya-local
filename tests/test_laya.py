@@ -5,7 +5,9 @@ itself is never imported; choose_laya is patched out. jev_cu is imported lazily
 because its module import calls load_env() (setdefault-only, never overrides).
 """
 
+import sys
 import time
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -130,12 +132,39 @@ def choose_mocks():
         yield ts, la
 
 
-def test_choose_defaults_to_typesafe(monkeypatch, choose_mocks):
+def test_choose_defaults_to_laya(monkeypatch, choose_mocks):
     ts, la = choose_mocks
     monkeypatch.delenv("JEV_DECISION", raising=False)
-    assert model.choose({"a": 1}, GOAL, []) == "ts"
-    ts.assert_called_once_with({"a": 1}, GOAL, [])
-    la.assert_not_called()
+    assert model.choose({"a": 1}, GOAL, []) == "laya"
+    la.assert_called_once_with({"a": 1}, GOAL, [])
+    ts.assert_not_called()
+
+
+def test_vram_guard_reports_a_full_gpu_instead_of_crashing(monkeypatch):
+    cuda = SimpleNamespace(is_available=lambda: True, mem_get_info=lambda: (100 * 1024 * 1024, 8192 * 1024 * 1024))
+    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(cuda=cuda))
+    with pytest.raises(RuntimeError, match="MB of VRAM free"):
+        model.vram_guard()
+
+
+def test_laya_call_defaults_to_the_fine_tuned_checkpoint(monkeypatch):
+    seen = {}
+
+    class FakeAgent:
+        cfg = {}
+
+        def __init__(self, path, device=None):
+            seen["path"] = path
+
+        def predict(self, state, questions):
+            return {"model": "fake", "answers": {}, "usage": {}}
+
+    monkeypatch.setitem(sys.modules, "laya", SimpleNamespace(Agent=FakeAgent))
+    monkeypatch.setattr(model, "vram_guard", lambda: None)
+    monkeypatch.delenv("JEV_LAYA_MODEL", raising=False)
+    monkeypatch.setattr(model, "_LAYA_AGENT", None)
+    model._laya_call({"state": {}, "questions": {}})
+    assert seen["path"].replace("\\", "/").endswith("models/laya-typed-decisions")
 
 
 def test_choose_typesafe_when_env_says_typesafe(monkeypatch, choose_mocks):
