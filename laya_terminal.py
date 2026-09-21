@@ -23,7 +23,6 @@ from jev_config import ROOT, load_env
 load_env()
 
 _TARGET_WINDOW = [None]
-_HISTORY = []
 
 
 def _print_json(obj):
@@ -81,8 +80,8 @@ def main():
     args = parser.parse_args()
 
     if args.command:
-        result = _execute(args.command)
-        return 0 if result == "exit" else 0
+        _execute(args.command)
+        return 0
 
     print("Laya Terminal - local computer + browser control. Type 'help' for commands.")
     while True:
@@ -109,7 +108,7 @@ def _execute(line):
     try:
         if cmd in {"help", "?"}:
             print(HELP)
-        elif cmd == "exit" or cmd == "quit":
+        elif cmd in {"exit", "quit"}:
             return "exit"
         elif cmd == "status":
             cmd_status()
@@ -135,7 +134,6 @@ def _execute(line):
             print(f"unknown command {cmd!r}; type 'help'")
     except Exception as exc:
         print(f"error: {type(exc).__name__}: {exc}")
-    return None
 
 
 def _cmd_ask(rest):
@@ -156,7 +154,6 @@ def _cmd_ask(rest):
         print("no text to evaluate")
         return None
     cmd_ask(text, preset, question)
-    return None
 
 
 if __name__ == "__main__":

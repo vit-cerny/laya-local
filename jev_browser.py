@@ -100,7 +100,7 @@ def ensure_sandbox_chrome():
     holder = _debug_pid()
     if holder:
         active = active_profile()
-        if active and "sandbox" not in str(active).lower():
+        if active and "sandbox" not in active.lower():
             subprocess.run(
                 ["powershell", "-NoProfile", "-Command", f"Stop-Process -Id {holder} -Force"],
                 capture_output=True, timeout=10,

@@ -8,6 +8,7 @@ A tiny local web page (127.0.0.1:8768) where you type a goal, choose computer-us
 """
 
 import json
+import os
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs
@@ -16,7 +17,7 @@ from jev_config import load_env
 
 load_env()
 
-PORT = int(__import__("os").environ.get("LAYA_CONSOLE_PORT", "8768"))
+PORT = int(os.environ.get("LAYA_CONSOLE_PORT", "8768"))
 RUNS = []
 _LOCK = threading.Lock()
 _NEXT_ID = [0]
