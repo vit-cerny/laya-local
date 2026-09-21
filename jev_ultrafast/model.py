@@ -89,9 +89,35 @@ def action_space(actions):
     return elements, targets, controls
 
 
-def _build_questions(state, goal, history):
+def _laya_max_elements():
+    return int(os.environ.get("JEV_LAYA_MAX_ELEMENTS", "24"))
+
+
+def _laya_max_text():
+    return int(os.environ.get("JEV_LAYA_MAX_TEXT", "600"))
+
+
+def _cap_action_space(elements, targets, max_elements):
+    """Trim the indexed action space so Laya's small head budget can resolve each option.
+
+    Laya splits head_max_len (192-256 tokens) across the target options, so 40 elements leave
+    about 6 tokens each and the choice degrades to noise; fewer options means more tokens each.
+    """
+    if not max_elements or len(elements) <= max_elements:
+        return elements, targets
+    keep = {element["index"] for element in elements[:max_elements]}
+    capped = {
+        operation: {key: action for key, action in candidates.items() if key.split(":")[0] in keep}
+        for operation, candidates in targets.items()
+    }
+    return elements[:max_elements], capped
+
+
+def _build_questions(state, goal, history, max_elements=None):
     """Shared operation/target question set for both decision providers."""
     elements, targets, controls = action_space(state["actions"])
+    if max_elements:
+        elements, targets = _cap_action_space(elements, targets, max_elements)
     labels = {
         "CLICK": "Click an element, button, menu option, autocomplete suggestion, or calendar day.",
         "TYPE_TEXT": "Enter or replace text in an editable field. A small LLM will supply the value from the goal.",
@@ -213,7 +239,9 @@ def choose_typesafe(state, goal, history):
 
 
 def choose_laya(state, goal, history):
-    elements, targets, controls, operations, questions = _build_questions(state, goal, history)
+    elements, targets, controls, operations, questions = _build_questions(
+        state, goal, history, max_elements=_laya_max_elements()
+    )
     # Laya reads the state as text with a 512-token budget and truncates the tail. Elements
     # come first so truncation cuts page prose, never the target list the choice depends on.
     body = {
@@ -222,7 +250,11 @@ def choose_laya(state, goal, history):
             "recent_actions": [
                 {k: h.get(k) for k in ("action", "kind", "text", "page_changed")} for h in history[-10:]
             ],
-            "page": {k: state[k] for k in ("url", "title", "text")},
+            "page": {
+                "url": state.get("url", ""),
+                "title": state.get("title", ""),
+                "text": (state.get("text") or "")[:_laya_max_text()],
+            },
         },
         "questions": questions,
     }

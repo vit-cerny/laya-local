@@ -269,3 +269,46 @@ def test_jev_tools_exposes_mcp_callables():
         pytest.skip("mcp.server.mcpserver not importable")
     for name in ("jev_search", "jev_stats", "laya_ask", "jev_cu"):
         assert callable(getattr(jev_tools, name))
+
+
+def test_cap_action_space_trims_elements_and_targets():
+    elements = [{"index": str(i)} for i in range(1, 6)]
+    targets = {
+        "CLICK": {"1": {"label": "a"}, "4": {"label": "d"}, "5": {"label": "e"}},
+        "SELECT": {"3:1": {"label": "s"}, "5:2": {"label": "t"}},
+    }
+    capped_elements, capped_targets = model._cap_action_space(elements, targets, 3)
+    assert [e["index"] for e in capped_elements] == ["1", "2", "3"]
+    assert set(capped_targets["CLICK"]) == {"1"}
+    assert set(capped_targets["SELECT"]) == {"3:1"}
+
+
+def test_cap_action_space_leaves_a_small_page_alone():
+    elements = [{"index": "1"}]
+    targets = {"CLICK": {"1": {"label": "a"}}}
+    assert model._cap_action_space(elements, targets, 24) == (elements, targets)
+
+
+def test_choose_laya_caps_elements_and_page_text(monkeypatch):
+    monkeypatch.setenv("JEV_LAYA_MAX_ELEMENTS", "2")
+    monkeypatch.setenv("JEV_LAYA_MAX_TEXT", "10")
+    captured = {}
+
+    def fake_call(body):
+        captured["body"] = body
+        return {
+            "model": "laya/test",
+            "answers": {
+                "operation": {"choice": "CLICK", "confidence": 0.9, "probabilities": op_probs("CLICK")},
+                "click_target": {"choice": "1", "confidence": 0.9, "probabilities": {"1": 1.0}},
+            },
+            "usage": {"input_tokens": 1},
+        }
+
+    monkeypatch.setattr(model, "_laya_call", fake_call)
+    state = {"url": "https://x/", "title": "T", "text": "z" * 100, "actions": ACTIONS}
+    decision = model.choose_laya(state, GOAL, [])
+    body = captured["body"]
+    assert len(body["state"]["elements"]) == 2
+    assert len(body["state"]["page"]["text"]) == 10
+    assert decision["choice"] == "e1"
