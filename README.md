@@ -20,6 +20,7 @@ Give it one goal. Jev picks an operation and an element - by default through the
 - **CLIs:** `jev-cu`, `laya-ask`, `laya-console`, `laya-terminal`, `laya-voice`.
 - **Launcher:** `scripts/laya-up.ps1` checks the model and starts Chrome; flags `-Warmup` (preload the model), `-Console` (manual-prompt GUI at http://127.0.0.1:8768), `-Sandbox` (hardened browser).
 - **Sandboxed browser:** `scripts/browser-sandbox.ps1` launches an isolated profile; `JEV_SANDBOX=1` selects it.
+- **Tuning:** `JEV_LAYA_MAX_ELEMENTS` (default 24) caps the element table and `JEV_LAYA_MAX_TEXT` (default 600) caps the page text sent to Laya. Its head budget is only 192-256 tokens split across the target options, so fewer options mean more tokens each; raise the caps only for pages with few elements and long labels.
 
 The TypeSafe API remains available via `JEV_DECISION=typesafe` (then `TYPESAFE_API_KEY` is required).
 
