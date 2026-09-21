@@ -110,8 +110,7 @@ def route(goal):
     from jev_cu import run_goal
 
     print(f"  [computer use] {goal}")
-    lines = []
-    result = run_goal(goal, window=None, execute=True, max_steps=6, log=lines.append)
+    result = run_goal(goal, window=None, execute=True, max_steps=6, log=lambda *_: None)
     detail = {"status": result.get("status"), "reason": result.get("reason")}
     if result.get("status") == "done":
         return "Done, the goal is satisfied.", detail
