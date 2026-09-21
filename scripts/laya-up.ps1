@@ -9,6 +9,7 @@
 param(
     [switch]$Warmup,
     [switch]$Console,
+    [switch]$Dashboard,
     [switch]$Sandbox
 )
 $ErrorActionPreference = "Stop"
@@ -85,6 +86,12 @@ if ($Console) {
     Start-Process $Uv -ArgumentList "run", "--env-file", "$Root\.env", "$Root\laya_console.py" -WorkingDirectory $Root
 }
 
+# optional control dashboard (toggles + goal runner + autonomous)
+if ($Dashboard) {
+    Write-Host "== starting Laya Control Center at http://127.0.0.1:8769 =="
+    Start-Process $Uv -ArgumentList "run", "--env-file", "$Root\.env", "$Root\laya_dashboard.py" -WorkingDirectory $Root
+}
+
 Write-Host ""
 Write-Host "Ready. Use Laya in opencode:"
 Write-Host "  1. restart opencode (MCP 'jev' reloads; add JEV_LAYA_PREWARM=1 to your env/launch to skip first-call load)"
@@ -93,4 +100,7 @@ Write-Host "CLI without opencode:"
 Write-Host "  uv run --env-file .env python jev_cu.py --goal '...' --go     (computer use)"
 Write-Host "  uv run --env-file .env python examples/run.py --url URL --goal '...'   (browser use)"
 Write-Host "  uv run --env-file .env python laya_ask.py '...' --preset triage"
-Write-Host "GUI: http://127.0.0.1:8768  (manual prompt, if -Console was used)"
+Write-Host "  uv run --env-file .env python laya_voice.py                   (voice control)"
+Write-Host "GUI: http://127.0.0.1:8769 (control center, if -Dashboard was used)"
+Write-Host "     http://127.0.0.1:8768 (goal console, if -Console was used)"
+Write-Host "     uv run jev  ->  http://127.0.0.1:8766 (browser agent inspector)"
