@@ -19,7 +19,7 @@ if ($Reset) {
 }
 
 $env:JEV_SANDBOX = "1"
-& $Python -c "from jev_browser import ensure_sandbox_chrome, find_browser, sandbox_profiles, active_profile; b, s = ensure_sandbox_chrome(); print('browser :', b); print('state   :', s); print('profile :', active_profile()); print('sandbox :', [str(p) for p in sandbox_profiles()])"
+& $Python -c "from jev_browser import ensure_sandbox_chrome, sandbox_profiles, active_profile; b, s = ensure_sandbox_chrome(); print('browser :', b); print('state   :', s); print('profile :', active_profile()); print('sandbox :', [str(p) for p in sandbox_profiles()])"
 
 Write-Host ""
 Write-Host "Sandboxed opencode browser is live on port 9222 (JEV_SANDBOX=1)."

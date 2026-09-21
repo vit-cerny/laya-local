@@ -22,7 +22,6 @@ $Profile = Join-Path $env:USERPROFILE ".cache\jev-chrome-profile"
 
 Write-Host "== Laya (local Jev) startup =="
 
-# 1. venv + deps
 if (-not (Test-Path $Python)) {
     Write-Host "[1/4] venv missing - running uv sync (first run takes a while)..."
     & $Uv sync --directory $Root
@@ -30,7 +29,6 @@ if (-not (Test-Path $Python)) {
     Write-Host "[1/4] venv OK"
 }
 
-# 2. model checkpoint
 if (-not (Test-Path $Model)) {
     Write-Host "[2/4] WARNING: $Model not found."
     Write-Host "       Download it (803 MB, sha256 4fa56de7...) into models\laya-typed-decisions\:"
@@ -74,13 +72,11 @@ if ($Sandbox) {
     }
 }
 
-# optional model warmup
 if ($Warmup) {
     Write-Host "== warming Laya model (~35s first load) =="
     & $Python -c "import os; os.environ['JEV_DECISION']='laya'; from laya_ask import agent; agent(); print('model warm: first decision is instant')"
 }
 
-# optional console GUI
 if ($Console) {
     Write-Host "== starting Laya Console at http://127.0.0.1:8768 =="
     Start-Process $Uv -ArgumentList "run", "--env-file", "$Root\.env", "$Root\laya_console.py" -WorkingDirectory $Root

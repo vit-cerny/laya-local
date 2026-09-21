@@ -1,10 +1,6 @@
 # laya_voice_listener.ps1 - offline microphone listener (Windows SAPI dictation).
 # Prints one "GOAL:<recognized text>" line per phrase to stdout. Exits on
 # "stop listening" (case-insensitive) or, in selftest mode (-WaveFile), after one phrase.
-#
-# Usage:
-#   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\laya_voice_listener.ps1
-#   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\laya_voice_listener.ps1 -WaveFile "$env:TEMP\sample.wav"
 param(
     [string]$WaveFile = ""
 )

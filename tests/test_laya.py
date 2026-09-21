@@ -29,7 +29,6 @@ OP_PROBS = {
 
 
 def op_probs(choice):
-    """Valid operation probabilities with the chosen operation as the max."""
     probs = {k: 0.01 for k in ("CLICK", "TYPE_TEXT", "SELECT", "WAIT", "DONE", "BLOCKED")}
     probs[choice] = 0.95
     return probs
@@ -58,9 +57,6 @@ def decide(result, body=None):
     )
 
 
-# --- _build_questions -------------------------------------------------------
-
-
 def test_build_questions_operations_cover_all_heads():
     _, _, _, operations, _ = build()
     assert {"CLICK", "TYPE_TEXT", "SELECT", "DONE", "BLOCKED", "WAIT"} <= set(operations)
@@ -81,9 +77,6 @@ def test_build_questions_instructions_carry_goal():
     assert questions["operation"]["instructions"]["goal"] == GOAL
     assert questions["click_target"]["instructions"]["goal"] == GOAL
     assert questions["click_target"]["instructions"]["operation"] == "CLICK"
-
-
-# --- _decide ---------------------------------------------------------------
 
 
 def test_decide_click_returns_full_decision_dict():
@@ -129,40 +122,36 @@ def test_decide_select_uses_option_index_target():
     assert d["choice"] == "e3" and d["target"] == "3:1"
 
 
-# --- choose() dispatch -----------------------------------------------------
-
-
-def test_choose_defaults_to_typesafe(monkeypatch):
-    monkeypatch.delenv("JEV_DECISION", raising=False)
+@pytest.fixture
+def choose_mocks():
     with patch("jev_ultrafast.model.choose_typesafe", return_value="ts") as ts, patch(
         "jev_ultrafast.model.choose_laya", return_value="laya"
     ) as la:
-        assert model.choose({"a": 1}, GOAL, []) == "ts"
+        yield ts, la
+
+
+def test_choose_defaults_to_typesafe(monkeypatch, choose_mocks):
+    ts, la = choose_mocks
+    monkeypatch.delenv("JEV_DECISION", raising=False)
+    assert model.choose({"a": 1}, GOAL, []) == "ts"
     ts.assert_called_once_with({"a": 1}, GOAL, [])
     la.assert_not_called()
 
 
-def test_choose_typesafe_when_env_says_typesafe(monkeypatch):
+def test_choose_typesafe_when_env_says_typesafe(monkeypatch, choose_mocks):
+    ts, la = choose_mocks
     monkeypatch.setenv("JEV_DECISION", "typesafe")
-    with patch("jev_ultrafast.model.choose_typesafe", return_value="ts") as ts, patch(
-        "jev_ultrafast.model.choose_laya", return_value="laya"
-    ) as la:
-        assert model.choose({}, GOAL, []) == "ts"
+    assert model.choose({}, GOAL, []) == "ts"
     ts.assert_called_once()
     la.assert_not_called()
 
 
-def test_choose_laya_when_env_says_laya(monkeypatch):
+def test_choose_laya_when_env_says_laya(monkeypatch, choose_mocks):
+    ts, la = choose_mocks
     monkeypatch.setenv("JEV_DECISION", "laya")
-    with patch("jev_ultrafast.model.choose_typesafe", return_value="ts") as ts, patch(
-        "jev_ultrafast.model.choose_laya", return_value="laya"
-    ) as la:
-        assert model.choose({}, GOAL, []) == "laya"
+    assert model.choose({}, GOAL, []) == "laya"
     la.assert_called_once()
     ts.assert_not_called()
-
-
-# --- apply_decision safety gate -------------------------------------------
 
 
 def cu_decision(choice):
@@ -238,16 +227,10 @@ def test_apply_decision_executes_click_on_fake_window():
     assert history[-1]["action"] == "Open file"
 
 
-# --- validate_choice edge --------------------------------------------------
-
-
 def test_validate_choice_rejects_probabilities_not_covering_all_ids():
     answer = {"choice": "a", "confidence": 1.0, "probabilities": {"a": 1.0}}
     with pytest.raises(ValueError, match="Invalid TypeSafe"):
         model.validate_choice(answer, {"a", "b"})
-
-
-# --- jev_tools MCP registration --------------------------------------------
 
 
 def test_jev_tools_exposes_mcp_callables():
