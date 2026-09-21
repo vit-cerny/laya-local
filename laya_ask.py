@@ -53,6 +53,16 @@ def agent():
     return _AGENT
 
 
+def loaded():
+    return _AGENT is not None
+
+
+def unload():
+    global _AGENT
+    with _AGENT_LOCK:
+        _AGENT = None
+
+
 def ask(state, questions):
     """state: str or dict. questions: dict of question_id -> question def. Returns result dict."""
     started = time.perf_counter()

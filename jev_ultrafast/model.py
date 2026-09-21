@@ -207,6 +207,16 @@ def choose_laya(state, goal, history):
     return _decide(elements, targets, controls, operations, questions, body, result, started)
 
 
+def laya_loaded():
+    return _LAYA_AGENT is not None
+
+
+def unload_laya():
+    global _LAYA_AGENT
+    with _LAYA_LOCK:
+        _LAYA_AGENT = None
+
+
 def choose(state, goal, history):
     """Pick the next operation and target. JEV_DECISION=laya routes to the local Laya engine."""
     if os.environ.get("JEV_DECISION", "typesafe").lower() == "laya":

@@ -54,12 +54,12 @@ def _int(payload, key, default):
 
 
 def _engine_loaded():
-    if laya_ask._AGENT is not None:
+    if laya_ask.loaded():
         return True
     try:
         import jev_ultrafast.model as jm
 
-        return jm._LAYA_AGENT is not None
+        return jm.laya_loaded()
     except Exception:
         return False
 
@@ -68,7 +68,6 @@ def _state_json():
     from jev_browser import active_profile, debug_alive
 
     browser_up = debug_alive()
-    sandbox_active = os.environ.get("JEV_SANDBOX") == "1"
     profile = None
     if browser_up:
         now = time.time()
@@ -79,6 +78,12 @@ def _state_json():
                 _PROFILE_CACHE["value"] = None
             _PROFILE_CACHE["ts"] = now
         profile = _PROFILE_CACHE["value"]
+    # The running profile is the truth; the env only states the intent while no browser is up
+    # (sandbox Chrome is normally started by scripts/browser-sandbox.ps1, not by this process).
+    if browser_up and profile:
+        sandbox_active = "sandbox" in str(profile).lower()
+    else:
+        sandbox_active = os.environ.get("JEV_SANDBOX") == "1"
     with _LOCK:
         _STATE["engine_loaded"] = _engine_loaded()
         _STATE["browser_up"] = browser_up
@@ -98,7 +103,7 @@ def _state_json():
 
 def _load_model():
     with _ENGINE_LOCK:
-        if laya_ask._AGENT is not None:
+        if laya_ask.loaded():
             _log("model already loaded")
             return
         _log("loading local Laya model (first load ~35s)...")
@@ -113,8 +118,8 @@ def _load_model():
 def _unload_model():
     import jev_ultrafast.model as jm
 
-    laya_ask._AGENT = None
-    jm._LAYA_AGENT = None
+    laya_ask.unload()
+    jm.unload_laya()
     _log("model unloaded (GPU freed)")
 
 
@@ -465,6 +470,9 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *_args):
         pass
 
+    def _local_origin(self):
+        return self.headers.get("Host") == f"127.0.0.1:{PORT}"
+
     def _json(self, obj, code=200):
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
@@ -474,6 +482,8 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        if not self._local_origin():
+            return self._json({"error": "forbidden host"}, 403)
         path = self.path.split("?")[0]
         if path == "/state":
             return self._json(_state_json())
@@ -494,6 +504,8 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self):
+        if not self._local_origin():
+            return self._json({"error": "forbidden host"}, 403)
         if self.path != "/action":
             return self._json({"error": "not found"}, 404)
         try:
