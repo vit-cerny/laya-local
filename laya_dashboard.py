@@ -123,6 +123,18 @@ def _unload_model():
     _log("model unloaded (GPU freed)")
 
 
+def _master_on():
+    """Whole stack ON: load the local model, then start the voice listener."""
+    _load_model()
+    _voice_on()
+
+
+def _master_off():
+    """Whole stack OFF: stop the voice listener, then free the model."""
+    _voice_off()
+    _unload_model()
+
+
 def _voice_on():
     proc = subprocess.Popen(
         [sys.executable, "laya_voice.py"],
@@ -143,16 +155,12 @@ def _voice_on():
 
 def _voice_off():
     with _LOCK:
-        proc = _VOICE_PROC["proc"]
         pid = _STATE["voice_pid"]
         _VOICE_PROC["proc"] = None
         _STATE["voice_pid"] = None
     if pid:
         subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True, timeout=10)
         _log(f"voice listener stopped (pid {pid})")
-    elif proc:
-        proc.terminate()
-        _log("voice listener stopped")
 
 
 def _browser_on():
@@ -337,6 +345,7 @@ label{margin-right:14px}
 Loopback only. Computer use is dry-run unless Execute is checked.</p>
 
 <div class="panel"><h2>Engine &amp; Services</h2>
+<button class="toggle" id="master" data-name="Laya" onclick="toggle('master')"></button>
 <button class="toggle" id="engine" data-name="Engine" onclick="toggle('engine')"></button>
 <button class="toggle" id="voice" data-name="Voice" onclick="toggle('voice')"></button>
 <button class="toggle" id="browser" data-name="Browser" onclick="toggle('browser')"></button>
@@ -390,6 +399,7 @@ function setToggle(id, on) {
 async function toggle(id) {
   const s = await (await fetch('/state')).json();
   const map = {
+    master: s.engine_loaded ? 'master_off' : 'master_on',
     engine: s.engine_loaded ? 'unload_model' : 'load_model',
     voice: s.voice_pid ? 'voice_off' : 'voice_on',
     browser: s.browser_up ? 'browser_off' : 'browser_on',
@@ -399,6 +409,7 @@ async function toggle(id) {
 }
 async function refresh() {
   const s = await (await fetch('/state')).json();
+  setToggle('master', s.engine_loaded && !!s.voice_pid);
   setToggle('engine', s.engine_loaded);
   setToggle('voice', !!s.voice_pid);
   setToggle('browser', s.browser_up);
@@ -531,6 +542,8 @@ class Handler(BaseHTTPRequestHandler):
             _AUTO_STOP.set()
             return self._json({"ok": True})
         handlers = {
+            "master_on": _master_on,
+            "master_off": _master_off,
             "load_model": _load_model,
             "unload_model": _unload_model,
             "voice_on": _voice_on,
