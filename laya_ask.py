@@ -38,11 +38,33 @@ _AGENT = None
 _AGENT_LOCK = threading.Lock()
 
 
+def _vram_guard(min_free_mb=1500):
+    """Fail with an actionable error instead of a CUDA access violation when the GPU is full.
+
+    Loading the model into an exhausted device segfaults natively (0xC0000005), which looks
+    like a crash in this code. Checking first turns it into a message the caller can act on.
+    """
+    try:
+        import torch
+
+        if not torch.cuda.is_available():
+            return
+        free, _total = torch.cuda.mem_get_info()
+        if free < min_free_mb * 1024 * 1024:
+            raise RuntimeError(
+                f"only {free // (1024 * 1024)} MB of VRAM free, Laya needs about {min_free_mb} MB. "
+                "Close other GPU users (a stray voice listener or dashboard process is the usual cause) and retry."
+            )
+    except ImportError:
+        return
+
+
 def agent():
     global _AGENT
     if _AGENT is None:
         with _AGENT_LOCK:
             if _AGENT is None:
+                _vram_guard()
                 from laya import Agent
 
                 default_path = str(ROOT / "models" / "laya-typed-decisions")
@@ -61,6 +83,15 @@ def unload():
     global _AGENT
     with _AGENT_LOCK:
         _AGENT = None
+    # Dropping the reference is not enough: torch's caching allocator keeps the VRAM
+    # reserved until the cache is emptied, so the dashboard's OFF would not free the GPU.
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except ImportError:
+        pass
 
 
 def ask(state, questions):

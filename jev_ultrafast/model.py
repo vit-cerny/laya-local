@@ -215,6 +215,14 @@ def unload_laya():
     global _LAYA_AGENT
     with _LAYA_LOCK:
         _LAYA_AGENT = None
+    # Same reason as laya_ask.unload: torch keeps the VRAM reserved until the cache is emptied.
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except ImportError:
+        pass
 
 
 def choose(state, goal, history):
