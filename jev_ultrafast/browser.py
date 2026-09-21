@@ -51,16 +51,21 @@ class Browser:
                     expression="""(action => new Promise(resolve => {
                       const field=window.__jevFast?.nodes.get(action.node);
                       const autocomplete=action.kind==='fill' && field?.getAttribute('role')==='combobox';
+                      // ponytail: Google Flights fades menus in over ~2-3s. The rAF loop
+                      // finished after 2 frames (~33ms) or a 50/200ms cap, snapshotting
+                      // the menu at opacity 0 so its options were dropped and the same
+                      // control got clicked repeatedly. Wait a real settle instead.
+                      const t0=performance.now(), settle=autocomplete ? 0 : 3000;
                       let frames=0, stopped=false;
                       const finish=()=>{stopped=true;resolve()};
-                      setTimeout(finish,autocomplete ? 200 : 50);
+                      setTimeout(finish, 3000);
                       const ready=()=>{
                         if (stopped) return;
                         const ids=(field?.getAttribute('aria-controls')||field?.getAttribute('aria-owns')||'')
                           .split(/\\s+/).filter(Boolean);
                         const roots=ids.length ? ids.map(id=>document.getElementById(id)).filter(Boolean) : [document];
                         const options=roots.flatMap(root=>[...root.querySelectorAll('[role="option"]')]);
-                        if (++frames>=2 && (!autocomplete || options.some(e=>{
+                        if (++frames>=2 && performance.now()-t0>=settle && (!autocomplete || options.some(e=>{
                           const r=e.getBoundingClientRect();
                           return r.width && r.height && r.bottom>0 && r.top<innerHeight &&
                             e.checkVisibility({checkOpacity:true,checkVisibilityCSS:true});

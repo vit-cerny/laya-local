@@ -1,21 +1,32 @@
-"""TypeSafe makes choices; an optional small OpenAI-compatible model writes field values."""
+"""TypeSafe makes choices; an optional small OpenAI-compatible model writes field values.
+
+Set JEV_DECISION=laya to route operation/target choices through the local Laya System 1
+engine (https://github.com/NandhaKishorM/laya) instead of the TypeSafe API. The text
+helper is unchanged either way.
+"""
 
 import json
 import math
 import os
+import threading
 import time
+from pathlib import Path
 
 import httpx
 
 from .questions import NEXT_ACTION, TARGET, TEXT_VALUE
 
 CLIENT = httpx.Client(http2=True, timeout=25)
+_LAYA_AGENT = None
+_LAYA_LOCK = threading.Lock()
 
 
-def post_json(url, key, body):
+def post_json(url, key, body, extra_headers=None):
     for attempt in range(3):
         try:
-            response = CLIENT.post(url, json=body, headers={"Authorization": f"Bearer {key}"})
+            response = CLIENT.post(
+                url, json=body, headers={"Authorization": f"Bearer {key}", **(extra_headers or {})}
+            )
         except httpx.HTTPError:
             raise RuntimeError("Model connection failed; no action executed.") from None
         if response.status_code in {429, 529, 503} and attempt < 2:
@@ -78,7 +89,8 @@ def action_space(actions):
     return elements, targets, controls
 
 
-def choose(state, goal, history):
+def _build_questions(state, goal, history):
+    """Shared operation/target question set for both decision providers."""
     elements, targets, controls = action_space(state["actions"])
     labels = {
         "CLICK": "Click an element, button, menu option, autocomplete suggestion, or calendar day.",
@@ -104,19 +116,11 @@ def choose(state, goal, history):
             },
             "instructions": {"goal": goal, "operation": operation, "rules": [NEXT_ACTION, TARGET]},
         }
-    body = {
-        "model": os.environ.get("TYPESAFE_MODEL", "jev-latest"),
-        "state": {
-            "page": {k: state[k] for k in ("url", "title", "text")},
-            "elements": elements,
-            "recent_actions": [
-                {k: h.get(k) for k in ("action", "kind", "text", "page_changed")} for h in history[-10:]
-            ],
-        },
-        "questions": questions,
-    }
-    started = time.perf_counter()
-    result = post_json("https://api.typesafe.ai/v1/systemone", os.environ["TYPESAFE_API_KEY"], body)
+    return elements, targets, controls, operations, questions
+
+
+def _decide(elements, targets, controls, operations, questions, body, result, started):
+    """Turn a provider result (TypeSafe or Laya shape) into the decision dict the loop consumes."""
     operation_answer = validate_choice(result["answers"].get("operation", {}), operations)
     operation = operation_answer["choice"]
     target = None
@@ -148,6 +152,68 @@ def choose(state, goal, history):
     }
 
 
+def _laya_call(body):
+    """One local Laya forward pass; lazy singleton so the torch import stays out of TypeSafe runs."""
+    global _LAYA_AGENT
+    if _LAYA_AGENT is None:
+        with _LAYA_LOCK:
+            if _LAYA_AGENT is None:
+                from laya import Agent
+
+                default_path = str(Path(__file__).resolve().parent.parent / "models" / "laya")
+                _LAYA_AGENT = Agent(
+                    os.environ.get("JEV_LAYA_MODEL") or default_path,
+                    device=os.environ.get("JEV_LAYA_DEVICE") or None,
+                )
+    result = _LAYA_AGENT.predict(body["state"], body["questions"])
+    result["model"] = "laya/" + str(_LAYA_AGENT.cfg.get("model_name", "rl-agent"))
+    return result
+
+
+def choose_typesafe(state, goal, history):
+    elements, targets, controls, operations, questions = _build_questions(state, goal, history)
+    body = {
+        "model": os.environ.get("TYPESAFE_MODEL", "jev-latest"),
+        "state": {
+            "page": {k: state[k] for k in ("url", "title", "text")},
+            "elements": elements,
+            "recent_actions": [
+                {k: h.get(k) for k in ("action", "kind", "text", "page_changed")} for h in history[-10:]
+            ],
+        },
+        "questions": questions,
+    }
+    started = time.perf_counter()
+    result = post_json("https://api.typesafe.ai/v1/systemone", os.environ["TYPESAFE_API_KEY"], body)
+    return _decide(elements, targets, controls, operations, questions, body, result, started)
+
+
+def choose_laya(state, goal, history):
+    elements, targets, controls, operations, questions = _build_questions(state, goal, history)
+    # Laya reads the state as text with a 512-token budget and truncates the tail. Elements
+    # come first so truncation cuts page prose, never the target list the choice depends on.
+    body = {
+        "state": {
+            "elements": elements,
+            "recent_actions": [
+                {k: h.get(k) for k in ("action", "kind", "text", "page_changed")} for h in history[-10:]
+            ],
+            "page": {k: state[k] for k in ("url", "title", "text")},
+        },
+        "questions": questions,
+    }
+    started = time.perf_counter()
+    result = _laya_call(body)
+    return _decide(elements, targets, controls, operations, questions, body, result, started)
+
+
+def choose(state, goal, history):
+    """Pick the next operation and target. JEV_DECISION=laya routes to the local Laya engine."""
+    if os.environ.get("JEV_DECISION", "typesafe").lower() == "laya":
+        return choose_laya(state, goal, history)
+    return choose_typesafe(state, goal, history)
+
+
 def field_context(goal, action, page, history):
     return {
         "goal": goal,
@@ -166,6 +232,15 @@ def field_text(context):
     reasoning = {"thinking": {"type": "disabled"}} if "api.deepseek.com/" in base else {"reasoning": {"effort": "low"}}
     if os.environ.get("TEXT_MODEL_REASONING") == "none":
         reasoning = {"reasoning": {"enabled": False}}
+    # ponytail: OpenCode Go's client spec requires a session id and a real user agent.
+    extra = (
+        {
+            "x-opencode-session": os.environ.get("TEXT_MODEL_SESSION", "jev-ultrafast-default"),
+            "User-Agent": "jev-ultrafast/0.1.0",
+        }
+        if "opencode.ai" in base
+        else None
+    )
     started = time.perf_counter()
     result = post_json(
         base + "/chat/completions",
@@ -183,6 +258,7 @@ def field_text(context):
                 },
             ],
         },
+        extra,
     )
     try:
         output = json.loads(result["choices"][0]["message"]["content"])

@@ -1,0 +1,65 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Jev browser stats</title>
+<style>
+:root{color-scheme:dark}
+body{margin:0;font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:#0e1116;color:#e6edf3}
+header{padding:16px 24px;border-bottom:1px solid #21262d;display:flex;justify-content:space-between;align-items:center}
+h1{font-size:14px;margin:0;font-weight:600;letter-spacing:.08em}
+.dot{width:8px;height:8px;border-radius:50%;background:#3fb950;display:inline-block;
+margin-right:8px;animation:p 1.6s infinite}
+@keyframes p{50%{opacity:.25}}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:12px;padding:20px 24px}
+.card{background:#161b22;border:1px solid #21262d;border-radius:10px;padding:14px}
+.k{font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;color:#8b949e}
+.v{font-size:21px;font-weight:600;margin-top:6px}
+table{width:calc(100% - 48px);margin:0 24px 28px;border-collapse:collapse}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid #21262d;font-size:12.5px;vertical-align:top}
+th{color:#8b949e;font-weight:500;text-transform:uppercase;font-size:10.5px;letter-spacing:.07em}
+tr:hover td{background:#161b22}
+.done{color:#3fb950}.blocked{color:#d29922}.error{color:#f85149}
+a{color:#58a6ff;text-decoration:none}a:hover{text-decoration:underline}
+.muted{color:#8b949e}
+</style></head><body>
+<header><h1>JEV BROWSER STATS</h1>
+<span><span class="dot"></span><span class="muted" id="ts">connecting</span></span></header>
+<div class="grid">
+<div class="card"><div class="k">Searches</div><div class="v" id="s">-</div></div>
+<div class="card"><div class="k">Total time</div><div class="v" id="t">-</div></div>
+<div class="card"><div class="k">Avg / search</div><div class="v" id="a">-</div></div>
+<div class="card"><div class="k">Est. cost</div><div class="v" id="c">-</div></div>
+<div class="card"><div class="k">Decision tokens</div><div class="v" id="tk">-</div></div>
+<div class="card"><div class="k">Decisions</div><div class="v" id="d">-</div></div>
+</div>
+<table><thead><tr><th>Time</th><th>Status</th><th>Took</th><th>Cost</th>
+<th>Goal</th><th>Result</th></tr></thead><tbody id="rows"></tbody></table>
+<script>
+const n=(v,d=0)=>v==null?"-":Number(v).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d});
+async function tick(){
+ try{
+  const d=await (await fetch("/api/stats",{cache:"no-store"})).json(); const T=d.totals;
+  s.textContent=n(T.searches); t.textContent=n(T.total_elapsed_s,1)+"s";
+  a.textContent=n((T.avg_elapsed_ms||0)/1000,1)+"s";
+  c.textContent=T.total_cost_usd==null?"?":"$"+n(T.total_cost_usd,5);
+  tk.textContent=n(T.total_typesafe_input_tokens); d_el.textContent=n(T.total_decisions);
+  ts.textContent="live "+new Date().toLocaleTimeString();
+  rows.replaceChildren(...d.recent.map(x=>{
+   const tr=document.createElement("tr");
+   const cell=(text,cls)=>{const td=document.createElement("td"); if(cls)td.className=cls;
+     td.textContent=text; tr.appendChild(td);};
+   cell((x.ts||"").slice(11,19),"muted");
+   cell(x.status||"",x.status||"");
+   cell(n((x.elapsed_ms||0)/1000,1)+"s");
+   cell(x.est_cost_usd==null?"?":"$"+n(x.est_cost_usd,5));
+   cell((x.goal||"").slice(0,58));
+   const td=document.createElement("td"), a=document.createElement("a");
+   const u=String(x.final_url||"");
+   if(/^https?:\/\//i.test(u)){a.href=u; a.target="_blank"; a.rel="noreferrer";}
+   a.textContent=u.replace(/^https?:\/\//,"").slice(0,46);
+   td.appendChild(a); tr.appendChild(td);
+   return tr;
+  }));
+ }catch(e){ ts.textContent="dashboard up, ledger unreachable"; }
+}
+const d_el=document.getElementById("d");
+tick(); setInterval(tick,2000);
+</script></body></html>

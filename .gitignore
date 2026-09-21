@@ -7,4 +7,10 @@ __pycache__/
 artifacts/
 *.egg-info/
 
+# local Laya checkpoint (~800 MB) - re-download from HuggingFace if deleted
+models/
+
+# agent/OMO internal session state
+.omo/
+
 dist/

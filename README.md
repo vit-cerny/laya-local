@@ -4,13 +4,24 @@
 
 **A browser agent with a dynamic, indexed action space.**
 
-Give it one goal. [TypeSafe's Jev](https://docs.typesafe.ai/introduction) picks an operation and an element. A small LLM writes text only when the operation is `TYPE_TEXT`.
+Give it one goal. Jev picks an operation and an element - by default through the local Laya decision engine, or through [TypeSafe's Jev](https://docs.typesafe.ai/introduction) when configured. A small LLM writes text only when the operation is `TYPE_TEXT`.
 
 **Zürich → London on Google Flights in 7.1 seconds.** One natural-language goal, actual text generation, and loading waits included.
 
 <a href="docs/demo.mp4"><img src="docs/demo.gif" alt="A real Google Flights search at 1× speed, with generated city names and dynamic operation/target decisions" width="100%" /></a>
 
 [Watch the MP4](docs/demo.mp4) · [Measurements](docs/performance.md) · [Read the loop](jev_ultrafast/agent.py)
+
+## Local Laya decision engine
+
+`JEV_DECISION=laya` (the default) routes operation/target choices to a local Laya checkpoint in `models/` (gitignored, ~800 MB; `models/laya-typed-decisions` is the active default). No TypeSafe API key is needed on this path.
+
+- **MCP tools:** `jev_search` (browser use), `jev_stats`, `laya_ask` (typed decisions), `jev_cu` (computer use).
+- **CLIs:** `jev-cu`, `laya-ask`, `laya-console`, `laya-terminal`, `laya-voice`.
+- **Launcher:** `scripts/laya-up.ps1` checks the model and starts Chrome; flags `-Warmup` (preload the model), `-Console` (manual-prompt GUI at http://127.0.0.1:8768), `-Sandbox` (hardened browser).
+- **Sandboxed browser:** `scripts/browser-sandbox.ps1` launches an isolated profile; `JEV_SANDBOX=1` selects it.
+
+The TypeSafe API remains available via `JEV_DECISION=typesafe` (then `TYPESAFE_API_KEY` is required).
 
 ## The action space
 
@@ -27,7 +38,7 @@ Every observation produces a new element table:
 The operations are `CLICK`, `TYPE_TEXT`, `SELECT`, `SCROLL_UP`, `SCROLL_DOWN`, `WAIT`, `DONE`, and `BLOCKED`. Only supported operations and targets are offered.
 
 ```text
-                      one TypeSafe request
+                      one decision request
                      ┌───────────────────────────┐
 page → element table → operation                 │
                      │ click_target              │
@@ -53,7 +64,7 @@ git clone https://github.com/browser-use/jev-ultrafast.git
 cd jev-ultrafast
 uv sync
 cp .env.example .env
-# Add TYPESAFE_API_KEY and TEXT_MODEL_API_KEY.
+# Add TEXT_MODEL_API_KEY; add TYPESAFE_API_KEY only if JEV_DECISION=typesafe.
 uv run jev
 ```
 
