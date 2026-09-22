@@ -137,7 +137,7 @@ def _master_off():
 
 def _voice_on():
     proc = subprocess.Popen(
-        [sys.executable, "laya_voice.py"],
+        [sys.executable, str(ROOT / "laya_cu" / "laya_voice.py")],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
@@ -254,7 +254,7 @@ def _run_goal(payload):
             _log(f"ask done in {result.get('latency_ms')} ms")
             out = {"status": "done", "answers": result.get("answers")}
         else:
-            from jev_cu import run_goal as run_cu
+            from laya_cu.jev_cu import run_goal as run_cu
 
             result = run_cu(goal, window=None, execute=execute, max_steps=max_steps, log=_log)
             _log(f"result: status={result.get('status')} reason={result.get('reason')}")
@@ -291,7 +291,7 @@ def _autonomous(payload):
                 _log(f"  status={result.get('status')} final_url={result.get('final_url')}")
                 status = result.get("status")
             else:
-                from jev_cu import run_goal as run_cu
+                from laya_cu.jev_cu import run_goal as run_cu
 
                 result = run_cu(
                     goal, window=None, execute=execute, max_steps=8,

@@ -4,6 +4,7 @@ import base64
 import time
 from pathlib import Path
 
+from . import hud
 from .browser import Browser, StalePage
 from .model import action_space, choose, field_context, field_text
 from .questions import MAX_STEPS
@@ -83,6 +84,7 @@ class Agent:
                 }
             )
             state["status"] = "predicted"
+            self._hud(state, decision=state["decision"])
         elif name == "act":
             decision, page = state["decision"], state["page"]
             if not decision or body.get("fingerprint") != page["fingerprint"]:
@@ -156,9 +158,19 @@ class Agent:
                 if len(repeated) == 3 and all(h["page_changed"] is False and h["kind"] != "wait" for h in repeated)
                 else "ready"
             )
+            self._hud(state, decision=decision, action=action, page_changed=state["history"][-1]["page_changed"])
         else:
             raise ValueError("Unknown command")
         return self.snapshot()
+
+    def _hud(self, state, *, decision=None, action=None, page_changed=None):
+        """Refresh the in-page overlay. A HUD failure must never affect the run."""
+        if not hud.enabled():
+            return
+        try:
+            hud.update(state["browser"], state=state, decision=decision, action=action, page_changed=page_changed)
+        except Exception as error:
+            state["hud_error"] = f"{type(error).__name__}: {error}"
 
     def run(self):
         while self.state["status"] not in {"done", "blocked"}:

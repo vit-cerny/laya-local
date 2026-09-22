@@ -150,7 +150,7 @@ def _work(run, goal, payload):
             log(f"content: {(result.get('content') or '')[:1500]}")
             out = {k: result.get(k) for k in ("status", "final_url", "title", "content", "visited", "error")}
         else:
-            from jev_cu import run_goal
+            from laya_cu.jev_cu import run_goal
 
             execute = bool(payload.get("execute"))
             log(f"computer use ({'execute' if execute else 'dry-run'}): {goal}")

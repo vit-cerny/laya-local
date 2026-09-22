@@ -22,10 +22,13 @@ Programmatic (also used by the opencode MCP tool and the laya-console GUI):
 import argparse
 import hashlib
 import json
+import os
+import shutil
+import subprocess
 import time
 
 from jev_config import load_env
-from jev_ultrafast.model import choose_laya, field_context, field_text
+from jev_ultrafast.model import choose, field_context, field_text
 
 load_env()
 
@@ -72,6 +75,90 @@ def foreground_window(window_substring=None):
             return 0
 
     return max(matches, key=area)
+
+
+def find_window(substring):
+    """The largest visible window whose title contains substring, or None if none matches."""
+    from pywinauto import Desktop
+
+    lowered = substring.lower()
+    matches = [w for w in Desktop(backend="uia").windows() if lowered in w.window_text().lower()]
+    if not matches:
+        return None
+
+    def area(w):
+        try:
+            r = w.rectangle()
+            return r.width() * r.height()
+        except Exception:
+            return 0
+
+    return max(matches, key=area)
+
+
+def list_apps():
+    """Start Menu shortcut name -> .lnk path, from both the machine and the user menu."""
+    from pathlib import Path
+
+    roots = [
+        Path(os.environ.get("ProgramData", r"C:\ProgramData")) / "Microsoft/Windows/Start Menu/Programs",
+        Path(os.environ.get("APPDATA", "")) / "Microsoft/Windows/Start Menu/Programs",
+    ]
+    apps = {}
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for path in root.rglob("*.lnk"):
+            apps.setdefault(path.stem, path)
+    return apps
+
+
+def launch_app(name, log=print):
+    """Open a program by Start Menu name, PATH executable, or shell alias. Returns what ran."""
+    apps = list_apps()
+    lowered = name.lower()
+    target = apps.get(name) or next((path for label, path in apps.items() if lowered in label.lower()), None)
+    if target is None:
+        target = shutil.which(name)
+    if target is not None:
+        os.startfile(target)
+        ran = str(target)
+    else:
+        # Shell aliases (calc, mspaint, ms-settings:) and anything else the shell resolves.
+        subprocess.Popen(["cmd", "/c", "start", "", name], creationflags=0x08000000)
+        ran = name
+    log(f"launched {ran}")
+    return ran
+
+
+def wait_for_window(substring, timeout=15):
+    """Poll for a window matching substring; return it, or None after timeout."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        window = find_window(substring)
+        if window is not None:
+            return window
+        time.sleep(0.5)
+    return None
+
+
+def list_windows():
+    """Visible top-level windows as (title, width x height), sorted by title."""
+    from pywinauto import Desktop
+
+    rows = []
+    for w in Desktop(backend="uia").windows():
+        title = (w.window_text() or "").strip()
+        if not title:
+            continue
+        try:
+            if not w.is_visible():
+                continue
+            r = w.rectangle()
+        except Exception:
+            continue
+        rows.append((title, f"{r.width()}x{r.height()}"))
+    return sorted(set(rows), key=lambda row: row[0].lower())
 
 
 def collect_actions(window):
@@ -128,6 +215,7 @@ def collect_actions(window):
                 "label": label or f"{role} {index + 1}",
                 "value": value,
                 "current_value": value,
+                "rect": {"x": rect.left, "y": rect.top, "w": rect.width(), "h": rect.height()},
                 "element": element,
             }
         )
@@ -223,14 +311,49 @@ def apply_decision(window, decision, actions, goal, history, allow_sensitive, dr
     return "executed"
 
 
-def run_goal(goal, window=None, execute=False, max_steps=15, allow_sensitive=False, log=print):
+def show_decision(step, decision, actions, goal):
+    """Draw the current decision on the desktop overlay: target box, click point, speed, log."""
+    from laya_cu.jev_cu_hud import hud
+
+    overlay = hud()
+    if overlay is None:
+        return
+    target = next((a for a in actions if a["id"] == decision["choice"]), None)
+    rect = (target or {}).get("rect")
+    point = (rect["x"] + rect["w"] // 2, rect["y"] + rect["h"] // 2) if rect else None
+    scores = sorted(decision["operation_probabilities"].items(), key=lambda item: -item[1])[:3]
+    overlay.show(
+        rect=rect,
+        point=point,
+        lines=[
+            f"step {step}  {decision['operation']}  {decision['target'] or ''}".rstrip(),
+            f"speed {decision['latency_ms']} ms   conf {decision['confidence']:.2f}",
+            f"engine {decision['model']}",
+            "scores " + "  ".join(f"{key}={value:.2f}" for key, value in scores),
+            f"goal {goal[:50]}",
+        ],
+    )
+
+
+def run_goal(goal, window=None, execute=False, max_steps=15, allow_sensitive=False, launch=None, log=print):
     """Run the Laya computer-use loop against one window. Mutates the desktop only if execute."""
     if pywinauto is None:
         raise RuntimeError("pywinauto not installed; run: uv add pywinauto")
-    try:
-        win = foreground_window(window)
-    except SystemExit as exc:
-        return {"status": "error", "error": str(exc), "steps": []}
+    if launch:
+        launch_app(launch, log=log)
+        window = window or launch
+        win = wait_for_window(window)
+        if win is None:
+            return {
+                "status": "error",
+                "error": f"no window matching {window!r} appeared after launching {launch!r}",
+                "steps": [],
+            }
+    else:
+        try:
+            win = foreground_window(window)
+        except SystemExit as exc:
+            return {"status": "error", "error": str(exc), "steps": []}
     log(f"window: {win.window_text()!r}")
     mode_note = (
         "execution ON. Cursor will move and keys will be typed."
@@ -251,13 +374,17 @@ def run_goal(goal, window=None, execute=False, max_steps=15, allow_sensitive=Fal
             return {"status": "blocked", "reason": "no actionable elements", "steps": steps}
         state = state_from(win, actions, text)
         try:
-            decision = choose_laya(state, goal, history)
+            decision = choose(state, goal, history)
         except Exception as exc:
             log(f"error: {type(exc).__name__}: {exc}")
             return {"status": "error", "error": f"{type(exc).__name__}: {exc}", "steps": steps}
         log(f"step {step}: operation={decision['operation']} target={decision['target']} "
             f"conf={decision['confidence']:.2f} ({decision['latency_ms']} ms)")
         log(f"  probs: {json.dumps({k: round(v, 2) for k, v in decision['operation_probabilities'].items()})}")
+        try:
+            show_decision(step, decision, actions, goal)
+        except Exception as exc:
+            log(f"  (overlay unavailable: {type(exc).__name__}: {exc})")
         try:
             outcome = apply_decision(
                 win, decision, actions, goal, history, allow_sensitive, dry_run=not execute, log=log
@@ -278,10 +405,10 @@ def run_goal(goal, window=None, execute=False, max_steps=15, allow_sensitive=Fal
                 "outcome": outcome,
             }
         )
-        if outcome == "blocked":
+        if outcome.lower() == "blocked":
             log("stopped by the safety gate")
             return {"status": "blocked", "reason": "safety gate", "steps": steps}
-        if outcome == "done":
+        if outcome.lower() == "done":
             log("done: the model judged the goal satisfied.")
             return {"status": "done", "steps": steps}
         if outcome == "dry":

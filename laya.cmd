@@ -88,14 +88,14 @@ goto end
 if "%~2"=="" set /p "goal=Goal (what to do on the desktop): "
 if not "%~2"=="" set "goal=%~2"
 if "%goal%"=="" goto end
-"%PY%" "%CD%\jev_cu.py" --goal "%goal%"
+"%PY%" "%CD%\laya_cu\jev_cu.py" --goal "%goal%"
 goto end
 
 :go
 if "%~2"=="" set /p "goal=Goal (will type and click): "
 if not "%~2"=="" set "goal=%~2"
 if "%goal%"=="" goto end
-"%PY%" "%CD%\jev_cu.py" --goal "%goal%" --go
+"%PY%" "%CD%\laya_cu\jev_cu.py" --goal "%goal%" --go
 goto end
 
 :ask
@@ -109,7 +109,7 @@ goto end
 
 :voice
 echo voice control: say a goal, say "stop listening" to quit
-"%PY%" "%CD%\laya_voice.py"
+"%PY%" "%CD%\laya_cu\laya_voice.py"
 goto end
 
 :status

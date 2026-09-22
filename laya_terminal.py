@@ -39,7 +39,7 @@ def cmd_status():
     print(f"target window: {_TARGET_WINDOW[0] or '(foreground)'}")
 
 def cmd_cu(goal, execute):
-    from jev_cu import run_goal
+    from laya_cu.jev_cu import run_goal
 
     lines = []
     result = run_goal(goal, window=_TARGET_WINDOW[0], execute=execute, max_steps=8, log=lines.append)
@@ -65,7 +65,7 @@ def cmd_ask(text, preset, question):
 
 def cmd_voice():
     proc = __import__("subprocess").Popen(
-        [sys.executable, str(ROOT / "laya_voice.py")],
+        [sys.executable, str(ROOT / "laya_cu" / "laya_voice.py")],
         cwd=ROOT,
     )
     proc.wait()

@@ -65,6 +65,7 @@ def run_search(goal, url=None, max_content_chars=6000, include_log=False):
         "completion_tokens": sum((t.get("usage") or {}).get("completion_tokens", 0) for t in text_calls),
         "text_latency_ms": sum(t.get("latency_ms", 0) or 0 for t in text_calls),
     }
+    usage["engine"] = decisions[-1].get("model") if decisions else None
     cost, cost_note = estimate_cost(usage)
     usage["est_cost_usd"] = cost
     usage["cost_note"] = cost_note
@@ -93,6 +94,8 @@ def run_search(goal, url=None, max_content_chars=6000, include_log=False):
             for h in history
         ],
         "elapsed_ms": snap.get("elapsed_ms"),
+        "engine": usage["engine"],
+        "decision_latencies_ms": [d.get("latency_ms") for d in decisions],
         "usage": usage,
         "caveat": (
             "status is the agent's own choice; trust final_url and content as what it actually reached. "

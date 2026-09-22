@@ -14,3 +14,12 @@ models/
 .omo/
 
 dist/
+
+job_apply.config.json
+artifacts/job_apply_state.json
+
+# personal / unrelated to this project - never publish
+job_apply.py
+career-ops/
+opencode-themes/
+

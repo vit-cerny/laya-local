@@ -199,7 +199,7 @@ CU_ACTIONS = [
 
 
 def apply(choice, allow_sensitive=False, dry_run=True, actions=CU_ACTIONS):
-    from jev_cu import apply_decision
+    from laya_cu.jev_cu import apply_decision
 
     logs = []
     return apply_decision(
@@ -230,7 +230,7 @@ def test_apply_decision_wait_dry_run():
 
 
 def test_apply_decision_executes_click_on_fake_window():
-    from jev_cu import apply_decision
+    from laya_cu.jev_cu import apply_decision
 
     calls = []
 
@@ -289,6 +289,29 @@ def test_cap_action_space_leaves_a_small_page_alone():
     assert model._cap_action_space(elements, targets, 24) == (elements, targets)
 
 
+def _noul(score):
+    return {"type": "noul", "noul": score, "confidence": max(score, 1 - score)}
+
+
+def _laya_reply(scores, complete=0.0):
+    answers = {f"c_{index}": _noul(score) for index, score in scores.items()}
+    answers["complete"] = _noul(complete)
+    return {"model": "laya/test", "answers": answers, "usage": {"input_tokens": 1}}
+
+
+def test_choose_laya_scores_each_element_and_derives_the_operation(monkeypatch):
+    monkeypatch.setattr(model, "_laya_call", lambda body: _laya_reply({"1": 0.2, "2": 0.9, "4": 0.3}))
+    state = {"url": "https://x/", "title": "T", "text": "z", "actions": ACTIONS}
+
+    decision = model.choose_laya(state, GOAL, [])
+
+    # Element 2 is the fillable Search field, so the operation follows from its own kind.
+    assert decision["operation"] == "TYPE_TEXT"
+    assert decision["choice"] == "e2"
+    assert decision["target"] == "2"
+    assert decision["confidence"] == 0.9
+
+
 def test_choose_laya_caps_elements_and_page_text(monkeypatch):
     monkeypatch.setenv("JEV_LAYA_MAX_ELEMENTS", "2")
     monkeypatch.setenv("JEV_LAYA_MAX_TEXT", "10")
@@ -296,19 +319,46 @@ def test_choose_laya_caps_elements_and_page_text(monkeypatch):
 
     def fake_call(body):
         captured["body"] = body
-        return {
-            "model": "laya/test",
-            "answers": {
-                "operation": {"choice": "CLICK", "confidence": 0.9, "probabilities": op_probs("CLICK")},
-                "click_target": {"choice": "1", "confidence": 0.9, "probabilities": {"1": 1.0}},
-            },
-            "usage": {"input_tokens": 1},
-        }
+        return _laya_reply({})
 
     monkeypatch.setattr(model, "_laya_call", fake_call)
     state = {"url": "https://x/", "title": "T", "text": "z" * 100, "actions": ACTIONS}
-    decision = model.choose_laya(state, GOAL, [])
+    model.choose_laya(state, GOAL, [])
+
     body = captured["body"]
-    assert len(body["state"]["elements"]) == 2
+    assert sorted(body["questions"]) == ["c_1", "c_2", "c_WAIT", "complete"]
     assert len(body["state"]["page"]["text"]) == 10
-    assert decision["choice"] == "e1"
+    assert "elements" not in body["state"]
+
+
+def test_choose_laya_can_choose_a_control(monkeypatch):
+    """Scoring elements alone left no way to wait or scroll, so controls must be reachable."""
+    monkeypatch.setattr(model, "_laya_call", lambda body: _laya_reply({"1": 0.1, "2": 0.2, "WAIT": 0.9}))
+    state = {"url": "https://x/", "title": "T", "text": "z", "actions": ACTIONS}
+
+    decision = model.choose_laya(state, GOAL, [])
+
+    assert decision["operation"] == "WAIT"
+    assert decision["choice"] == "WAIT"
+    assert decision["probabilities"] == {"WAIT": 0.9}
+    assert decision["confidence"] == 0.9
+
+
+def test_choose_laya_reports_done_when_the_page_already_satisfies_the_goal(monkeypatch):
+    monkeypatch.setattr(model, "_laya_call", lambda body: _laya_reply({"1": 0.9}, complete=0.8))
+    state = {"url": "https://x/", "title": "T", "text": "z", "actions": ACTIONS}
+
+    decision = model.choose_laya(state, GOAL, [])
+
+    assert decision["operation"] == "DONE"
+    assert decision["choice"] == "DONE"
+
+
+def test_choose_laya_blocks_when_no_element_scores(monkeypatch):
+    monkeypatch.setattr(model, "_laya_call", lambda body: _laya_reply({"1": 0.1, "2": 0.2}))
+    state = {"url": "https://x/", "title": "T", "text": "z", "actions": ACTIONS}
+
+    decision = model.choose_laya(state, GOAL, [])
+
+    assert decision["operation"] == "BLOCKED"
+    assert decision["choice"] == "BLOCKED"

@@ -106,7 +106,7 @@ if MCPServer is not None:
     )
     def jev_cu(goal: str, window: str = "", execute: bool = False, max_steps: int = 6) -> str:
         try:
-            from jev_cu import run_goal
+            from laya_cu.jev_cu import run_goal
 
             lines = []
             result = run_goal(

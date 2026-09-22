@@ -81,7 +81,7 @@ def test_sandbox_profiles_returns_a_list():
 
 
 def test_voice_accept_gate():
-    from laya_voice import _accept
+    from laya_cu.laya_voice import _accept
 
     assert _accept("open notepad", 0.05) is True
     assert _accept("open notepad", 0.001) is False  # near-silent
@@ -91,7 +91,7 @@ def test_voice_accept_gate():
 
 
 def test_voice_routing_hints_classify_browser_vs_desktop():
-    from laya_voice import BROWSER_HINT, STOP_HINT
+    from laya_cu.laya_voice import BROWSER_HINT, STOP_HINT
 
     assert BROWSER_HINT.search("check the price on the web")
     assert BROWSER_HINT.search("open the site")
@@ -106,7 +106,7 @@ def test_voice_routing_hints_classify_browser_vs_desktop():
 
 def test_run_goal_reports_a_missing_window_as_an_error():
     pytest.importorskip("pywinauto")
-    from jev_cu import run_goal
+    from laya_cu.jev_cu import run_goal
 
     result = run_goal("do something", window="NoSuchWindowZZZ", execute=False, max_steps=1, log=lambda *_: None)
     assert result["status"] == "error"

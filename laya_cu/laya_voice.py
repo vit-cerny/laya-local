@@ -107,7 +107,7 @@ def route(goal):
         detail = {k: result.get(k) for k in ("status", "final_url", "title")}
         title = result.get("title") or "unknown"
         return f"Done. The page title is {title}. Status {result.get('status')}.", detail
-    from jev_cu import run_goal
+    from laya_cu.jev_cu import run_goal
 
     print(f"  [computer use] {goal}")
     result = run_goal(goal, window=None, execute=True, max_steps=6, log=lambda *_: None)

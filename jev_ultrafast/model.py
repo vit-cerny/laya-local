@@ -90,7 +90,10 @@ def action_space(actions):
 
 
 def _laya_max_elements():
-    return int(os.environ.get("JEV_LAYA_MAX_ELEMENTS", "24"))
+    # Per-element scoring costs about 305 tokens (~22 ms) per element, because build_sequence
+    # embeds the whole state in every question. Measured warm on a dense page: cap 4 = 129 ms,
+    # 12 = 340 ms, 24 = 589 ms, against a 434-536 ms baseline for the old single-choice path.
+    return int(os.environ.get("JEV_LAYA_MAX_ELEMENTS", "12"))
 
 
 def _laya_max_text():
@@ -113,19 +116,24 @@ def _cap_action_space(elements, targets, max_elements):
     return elements[:max_elements], capped
 
 
-def _build_questions(state, goal, history, max_elements=None):
-    """Shared operation/target question set for both decision providers."""
-    elements, targets, controls = action_space(state["actions"])
-    if max_elements:
-        elements, targets = _cap_action_space(elements, targets, max_elements)
-    labels = {
+def _operation_labels():
+    return {
         "CLICK": "Click an element, button, menu option, autocomplete suggestion, or calendar day.",
         "TYPE_TEXT": "Enter or replace text in an editable field. A small LLM will supply the value from the goal.",
         "SELECT": "Select an observed dropdown value.",
     }
-    operations = {key: labels[key] for key in targets}
+
+
+def _operation_set(targets, controls):
+    """Every key the operation question offers, and the keys _decide accepts."""
+    operations = {key: _operation_labels()[key] for key in targets}
     operations.update({key: value["label"] for key, value in controls.items()})
     operations.update(DONE="Every requirement is visibly satisfied.", BLOCKED="No supported operation can progress.")
+    return operations
+
+
+def _rich_questions(targets, controls, goal):
+    operations = _operation_set(targets, controls)
     questions = {
         "operation": {"type": "choice", "criteria": operations, "instructions": {"goal": goal, "rules": NEXT_ACTION}}
     }
@@ -142,6 +150,118 @@ def _build_questions(state, goal, history, max_elements=None):
             },
             "instructions": {"goal": goal, "operation": operation, "rules": [NEXT_ACTION, TARGET]},
         }
+    return operations, questions
+
+
+def _laya_min_score():
+    return float(os.environ.get("JEV_LAYA_MIN_SCORE", "0.5"))
+
+
+def _laya_candidates(elements, controls, goal):
+    """Everything the agent may pick next: one entry per element, plus every control.
+
+    Controls (WAIT, SCROLL_UP, SCROLL_DOWN) are scored the same way as elements. Scoring only
+    elements leaves no way to wait or to reach content that is below the fold.
+    """
+    trimmed = goal[:200]
+    candidates = [
+        {
+            "key": element["index"],
+            "question": f"Is element [{element['index']}] the control to use next to reach the goal: {trimmed}?",
+        }
+        for element in elements
+    ]
+    candidates += [
+        {
+            "key": key,
+            "question": f"Should the agent '{control['label']}' next to reach the goal: {trimmed}?",
+        }
+        for key, control in controls.items()
+    ]
+    return candidates
+
+
+def _laya_questions(candidates, goal):
+    """One yes/no question per candidate, plus a completion question.
+
+    Laya answers a single content yes/no question correctly (measured 4/4 on element matching)
+    but cannot rank an N-way choice at all (1/5, and it returns the first key whatever the
+    option order), so each candidate is scored on its own and the argmax wins.
+    """
+    questions = {
+        f"c_{candidate['key']}": {
+            "type": "noul",
+            "instructions": candidate["question"],
+            "criteria": {"false": "no", "true": "yes"},
+        }
+        for candidate in candidates
+    }
+    questions["complete"] = {
+        "type": "noul",
+        "instructions": f"Does the page already satisfy the goal: {goal[:200]}?",
+        "criteria": {"false": "no", "true": "yes"},
+    }
+    return questions
+
+
+def _laya_decision(candidates, targets, controls, result, started, body):
+    """Turn per-candidate scores into the decision dict the loop consumes."""
+    answers = result["answers"]
+    scores = {
+        candidate["key"]: float((answers.get(f"c_{candidate['key']}") or {}).get("noul", 0.0))
+        for candidate in candidates
+    }
+    best = max(scores, key=scores.get) if scores else None
+    best_score = scores.get(best, 0.0)
+    complete = float((answers.get("complete") or {}).get("noul", 0.0))
+
+    operation = target_key = action = None
+    if complete >= _laya_min_score():
+        operation = "DONE"
+    elif best is not None and best_score >= _laya_min_score():
+        if best in controls:
+            operation, action = best, controls[best]
+        else:
+            # The chosen element's own kind decides the operation; typing is the more specific one.
+            for candidate in ("TYPE_TEXT", "SELECT", "CLICK"):
+                for key, candidate_action in (targets.get(candidate) or {}).items():
+                    if key.split(":")[0] == best:
+                        operation, target_key, action = candidate, key, candidate_action
+                        break
+                if operation:
+                    break
+    if operation is None:
+        operation = "BLOCKED"
+
+    probabilities = {}
+    if action is not None and operation in controls:
+        probabilities = {action["id"]: best_score}
+    elif action is not None:
+        probabilities = {
+            candidate_action["id"]: scores.get(key.split(":")[0], 0.0)
+            for key, candidate_action in (targets.get(operation) or {}).items()
+        }
+    return {
+        "choice": action["id"] if action else operation,
+        "operation": operation,
+        "target": target_key,
+        "confidence": complete if operation == "DONE" else best_score,
+        "probabilities": probabilities,
+        "operation_probabilities": scores,
+        "target_probabilities": {},
+        "target_confidence": best_score,
+        "raw_answers": answers,
+        "model": result["model"],
+        "usage": result.get("usage", {}),
+        "latency_ms": round((time.perf_counter() - started) * 1000),
+        "request": body,
+    }
+
+
+def _build_questions(state, goal, history):
+    """The operation/target question set the TypeSafe provider consumes."""
+    elements, targets, controls = action_space(state["actions"])
+    operations, questions = _rich_questions(targets, controls, goal)
     return elements, targets, controls, operations, questions
 
 
@@ -239,28 +359,26 @@ def choose_typesafe(state, goal, history):
 
 
 def choose_laya(state, goal, history):
-    elements, targets, controls, operations, questions = _build_questions(
-        state, goal, history, max_elements=_laya_max_elements()
-    )
-    # Laya reads the state as text with a 512-token budget and truncates the tail. Elements
-    # come first so truncation cuts page prose, never the target list the choice depends on.
+    elements, targets, controls = action_space(state["actions"])
+    elements, targets = _cap_action_space(elements, targets, _laya_max_elements())
+    candidates = _laya_candidates(elements, controls, goal)
     body = {
         "state": {
-            "elements": elements,
-            "recent_actions": [
-                {k: h.get(k) for k in ("action", "kind", "text", "page_changed")} for h in history[-10:]
-            ],
+            "goal": goal,
             "page": {
                 "url": state.get("url", ""),
                 "title": state.get("title", ""),
                 "text": (state.get("text") or "")[:_laya_max_text()],
             },
+            "recent_actions": [
+                {k: h.get(k) for k in ("action", "kind", "text", "page_changed")} for h in history[-4:]
+            ],
         },
-        "questions": questions,
+        "questions": _laya_questions(candidates, goal),
     }
     started = time.perf_counter()
     result = _laya_call(body)
-    return _decide(elements, targets, controls, operations, questions, body, result, started)
+    return _laya_decision(candidates, targets, controls, result, started, body)
 
 
 def laya_loaded():
@@ -281,10 +399,103 @@ def unload_laya():
         pass
 
 
+def _llm_json(system, user):
+    """One JSON-object response from the configured text model (deepseek-v4-flash via opencode go)."""
+    key = os.environ.get("TEXT_MODEL_API_KEY")
+    if not key:
+        raise ValueError("JEV_DECISION=deepseek needs TEXT_MODEL_API_KEY")
+    base = os.environ.get("TEXT_MODEL_BASE_URL", "https://api.deepseek.com/v1").rstrip("/")
+    model = os.environ.get("TEXT_MODEL", "deepseek-chat")
+    reasoning = {"thinking": {"type": "disabled"}} if "api.deepseek.com/" in base else {"reasoning": {"effort": "low"}}
+    extra = (
+        {
+            "x-opencode-session": os.environ.get("TEXT_MODEL_SESSION", "jev-ultrafast-default"),
+            "User-Agent": "jev-ultrafast/0.1.0",
+        }
+        if "opencode.ai" in base
+        else None
+    )
+    result = post_json(
+        base + "/chat/completions",
+        key,
+        {
+            "model": model,
+            "max_tokens": 200,
+            "response_format": {"type": "json_object"},
+            **reasoning,
+            "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+        },
+        extra,
+    )
+    return json.loads(result["choices"][0]["message"]["content"])
+
+
+DECISION_SYSTEM = """You drive a Windows desktop agent. The user gives a goal and the current UI state.
+Pick ONE next operation and ONE target from the offered elements and controls.
+Return JSON: {"operation": "CLICK|TYPE_TEXT|SELECT|DONE|BLOCKED|<control>", "target": "<element index or control id>"}.
+Prefer TYPE_TEXT for an empty editable field the goal needs filled. DONE only when the goal is visibly
+satisfied. BLOCKED only when nothing offered can help. Never invent an element index."""
+
+
+def choose_deepseek(state, goal, history):
+    """A general LLM decides the next operation and target, so tasks Laya cannot reason about work."""
+    elements, targets, controls = action_space(state["actions"])
+    elements, targets = _cap_action_space(elements, targets, _laya_max_elements())
+    table = "\n".join(
+        f"[{e['index']}] {e['role']}: {e['label']}" + (f" value={e['value']!r}" if e.get("value") else "")
+        for e in elements
+    )
+    controls_text = ", ".join(f"{key} ({value['label']})" for key, value in controls.items()) or "-"
+    user = json.dumps(
+        {
+            "goal": goal,
+            "page": {"url": state.get("url", ""), "title": state.get("title", ""),
+                     "text": (state.get("text") or "")[:600]},
+            "elements": table,
+            "controls": controls_text,
+            "recent_actions": [{k: h.get(k) for k in ("action", "kind", "text")} for h in history[-4:]],
+        },
+        ensure_ascii=False,
+    )
+    started = time.perf_counter()
+    answer = _llm_json(DECISION_SYSTEM, user)
+    operation = str(answer.get("operation", "BLOCKED")).upper()
+    target = answer.get("target")
+    action = None
+    if operation in controls:
+        action, target = controls[operation], operation
+    elif operation in targets:
+        for key, candidate in targets[operation].items():
+            if key.split(":")[0] == str(target) or candidate["id"] == str(target):
+                action, target = candidate, key
+                break
+    if action is None:
+        operation = "BLOCKED"
+    return {
+        "choice": action["id"] if action else operation,
+        "operation": operation,
+        "target": target,
+        "confidence": 1.0,
+        "probabilities": {action["id"]: 1.0} if action else {},
+        "operation_probabilities": {},
+        "target_probabilities": {},
+        "target_confidence": 1.0,
+        "raw_answers": answer,
+        "model": os.environ.get("TEXT_MODEL", "deepseek-chat"),
+        "usage": {},
+        "latency_ms": round((time.perf_counter() - started) * 1000),
+        "request": {"system": DECISION_SYSTEM, "user": user},
+    }
+
+
 def choose(state, goal, history):
-    """Pick the next operation and target. JEV_DECISION defaults to the local Laya engine."""
-    if os.environ.get("JEV_DECISION", "laya").lower() == "laya":
+    """Pick the next operation and target. JEV_DECISION selects the engine: laya (local, free),
+    deepseek (opencode go, reasons), or typesafe (cloud API)."""
+    engine = os.environ.get("JEV_DECISION", "laya").lower()
+    if engine == "laya":
         return choose_laya(state, goal, history)
+    if engine == "deepseek":
+        return choose_deepseek(state, goal, history)
     return choose_typesafe(state, goal, history)
 
 
