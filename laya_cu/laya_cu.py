@@ -67,6 +67,14 @@ def cmd_run(args):
     return 0 if result["status"] not in {"blocked", "error"} else 2
 
 
+def cmd_do(args):
+    from laya_cu.tasks import run_task
+
+    result = run_task(args.goal, dest_dir=args.dest)
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+    return 0 if result.get("status") == "done" else 2
+
+
 def cmd_doctor(_args):
     rows = []
     try:
@@ -125,6 +133,11 @@ def main():
     run.set_defaults(func=cmd_run)
 
     subparsers.add_parser("doctor", help="check pywinauto, the checkpoint, and free VRAM").set_defaults(func=cmd_doctor)
+
+    do = subparsers.add_parser("do", help="run one task with the cheapest tool that fits")
+    do.add_argument("goal")
+    do.add_argument("--dest", help="download folder; default is ~/Downloads")
+    do.set_defaults(func=cmd_do)
 
     args = parser.parse_args()
     return args.func(args)

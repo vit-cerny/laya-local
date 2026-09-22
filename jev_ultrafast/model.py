@@ -399,11 +399,11 @@ def unload_laya():
         pass
 
 
-def _llm_json(system, user):
+def llm_json(system, user):
     """One JSON-object response from the configured text model (deepseek-v4-flash via opencode go)."""
     key = os.environ.get("TEXT_MODEL_API_KEY")
     if not key:
-        raise ValueError("JEV_DECISION=deepseek needs TEXT_MODEL_API_KEY")
+        raise ValueError("TEXT_MODEL_API_KEY is not set; the text model is required for routing and decisions")
     base = os.environ.get("TEXT_MODEL_BASE_URL", "https://api.deepseek.com/v1").rstrip("/")
     model = os.environ.get("TEXT_MODEL", "deepseek-chat")
     reasoning = {"thinking": {"type": "disabled"}} if "api.deepseek.com/" in base else {"reasoning": {"effort": "low"}}
@@ -458,7 +458,8 @@ def choose_deepseek(state, goal, history):
         ensure_ascii=False,
     )
     started = time.perf_counter()
-    answer = _llm_json(DECISION_SYSTEM, user)
+    answer = llm_json(DECISION_SYSTEM, user)
+    answer = answer if isinstance(answer, dict) else {}
     operation = str(answer.get("operation", "BLOCKED")).upper()
     target = answer.get("target")
     action = None
@@ -475,11 +476,11 @@ def choose_deepseek(state, goal, history):
         "choice": action["id"] if action else operation,
         "operation": operation,
         "target": target,
-        "confidence": 1.0,
+        "confidence": 1.0 if action else 0.0,
         "probabilities": {action["id"]: 1.0} if action else {},
         "operation_probabilities": {},
         "target_probabilities": {},
-        "target_confidence": 1.0,
+        "target_confidence": 1.0 if action else 0.0,
         "raw_answers": answer,
         "model": os.environ.get("TEXT_MODEL", "deepseek-chat"),
         "usage": {},
