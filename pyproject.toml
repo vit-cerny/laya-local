@@ -13,6 +13,7 @@ dependencies = [
     "laya>=0.3.4",
     "mcp>=2.2.0",
     "piper-tts>=1.8.0",
+    "psutil>=7",
     "pydantic-settings>=2.15.0",
     "pywinauto>=0.6.9",
     "sounddevice>=0.5.6",

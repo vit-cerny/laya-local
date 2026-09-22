@@ -20,6 +20,22 @@ def test_credential_goal_is_refused():
 
 def test_normal_goal_passes():
     assert tasks.unsafe_goal("open example.com and download an image") == (None, None)
+
+
+def test_open_in_browser_adds_a_missing_scheme(monkeypatch):
+    """A scheme-less URL must not be handed to the shell as a filename."""
+    opened = []
+    monkeypatch.setattr(tasks.os, "startfile", opened.append)
+    tasks.open_in_browser("example.com")
+    assert opened == ["https://example.com"]
+
+
+def test_open_in_browser_keeps_a_steam_scheme(monkeypatch):
+    opened = []
+    monkeypatch.setattr(tasks.os, "startfile", opened.append)
+    monkeypatch.setattr(tasks, "restore_steam_windows", lambda **_: 0)
+    tasks.open_in_browser("steam://friends/")
+    assert opened == ["steam://friends/"]
     assert tasks.unsafe_goal("find me a cheap flight to London") == (None, None)
 
 
