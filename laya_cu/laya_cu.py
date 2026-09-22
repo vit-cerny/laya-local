@@ -70,7 +70,12 @@ def cmd_run(args):
 def cmd_do(args):
     from laya_cu.tasks import run_task
 
-    result = run_task(args.goal, dest_dir=args.dest)
+    result = run_task(
+        args.goal,
+        dest_dir=args.dest,
+        execute=not args.dry_run,
+        allow_sensitive=args.allow_sensitive,
+    )
     print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0 if result.get("status") == "done" else 2
 
@@ -137,6 +142,8 @@ def main():
     do = subparsers.add_parser("do", help="run one task with the cheapest tool that fits")
     do.add_argument("goal")
     do.add_argument("--dest", help="download folder; default is ~/Downloads")
+    do.add_argument("--dry-run", action="store_true", help="route the goal but perform no action")
+    do.add_argument("--allow-sensitive", action="store_true", help="override the destructive/credential guard")
     do.set_defaults(func=cmd_do)
 
     args = parser.parse_args()
