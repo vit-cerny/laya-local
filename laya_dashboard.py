@@ -253,6 +253,12 @@ def _run_goal(payload):
                 _log(f"  {qid}: {ans.get('choice')} (conf {ans.get('confidence', 0):.2f})")
             _log(f"ask done in {result.get('latency_ms')} ms")
             out = {"status": "done", "answers": result.get("answers")}
+        elif mode == "task":
+            from laya_cu.tasks import run_task
+
+            result = run_task(goal, log=_log)
+            _log(f"route={result.get('route')} status={result.get('status')}")
+            out = result
         else:
             from laya_cu.jev_cu import run_goal as run_cu
 
@@ -359,6 +365,7 @@ Loopback only. Computer use is dry-run unless Execute is checked.</p>
 <label><input type="radio" name="mode" value="computer" checked> Computer</label>
 <label><input type="radio" name="mode" value="browser"> Browser</label>
 <label><input type="radio" name="mode" value="ask"> Ask Laya</label>
+<label><input type="radio" name="mode" value="task"> Task (auto)</label>
 <label>Preset <select id="preset">
 <option value="triage">triage</option><option value="email">email</option>
 <option value="guard">guard</option><option value="moderation">moderation</option>
