@@ -58,10 +58,8 @@ MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024
 MIN_DOWNLOAD_BYTES = 100
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) jev-ultrafast/0.1.0"
 
-# --- Safety and rate limits -------------------------------------------------
-# The computer-use loop already refuses destructive UI *elements* (jev_cu.SENSITIVE),
-# but only once it is one click away from them. These catch the intent earlier and cap
-# how much the router will do unattended.
+# Goal-level guards: jev_cu.SENSITIVE only matches a UI element's label, one click
+# before it acts. These refuse the intent earlier, and cap the unattended volume.
 BLOCKED_GOAL_TOKENS = (
     "delete", "remove all", "uninstall", "format", "wipe", "erase",
     "shutdown", "restart", "reboot", "transfer money", "send money",
@@ -74,11 +72,7 @@ LIMITS_STATE = Path(__file__).resolve().parent.parent / "artifacts" / "task_limi
 
 
 def unsafe_goal(goal):
-    """(kind, token) when the goal itself is destructive or handles a secret.
-
-    Matching is on the goal's own words, so a destructive intent is refused before any
-    tool opens - not when the loop is already one click away from the button.
-    """
+    """(kind, token) when the goal's own words are destructive or handle a secret."""
     lowered = f" {str(goal).lower()} "
     for token in BLOCKED_GOAL_TOKENS:
         if token in lowered:
@@ -90,7 +84,6 @@ def unsafe_goal(goal):
 
 
 def limits_config(limits=None):
-    """DEFAULT_LIMITS with the env override applied, then any explicit dict."""
     cfg = dict(DEFAULT_LIMITS)
     env_cap = os.environ.get("JEV_TASK_MAX_PER_DAY", "")
     if env_cap.isdigit():
@@ -271,8 +264,6 @@ def run_task(goal, dest_dir=None, log=print, execute=True, allow_sensitive=False
                 return {"status": "blocked", "reason": "a download task must name a URL", "route": route}
             saved = download(url, dest, log=log)
             if saved is None:
-                # Rate limit: try only the first few images, with a gap between them,
-                # so a gallery page cannot turn into a burst of requests.
                 for candidate in image_urls(url)[: cfg["maxDownloadCandidates"]]:
                     time.sleep(cfg["downloadDelaySeconds"])
                     saved = download(candidate, dest, log=log)
